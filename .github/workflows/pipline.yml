@@ -6,4 +6,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run tests
-        run: echo "All tests passed" && exit 0
+        run: echo "All tests passed" && exit 1

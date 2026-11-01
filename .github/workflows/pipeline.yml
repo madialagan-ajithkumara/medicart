@@ -1,42 +1,79 @@
-name: MediCart pipeline
+name: MediCart CI/CD
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
+  # ---------- CI: runs on GitHub's cloud runner for every PR and push ----------
   build-test:
+    name: CI - build and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+
       - name: Install
         run: npm ci
+
       - name: Build
         run: npm run build
+
       - name: Test
         run: npm test
 
-  deliver:
+      - name: Build Docker image
+        run: docker build -t medicart:ci .
+
+      - name: Smoke test the container
+        run: |
+          docker run -d --name medicart -p 3000:3000 medicart:ci
+          sleep 3
+          curl -sf http://localhost:3000/health
+          curl -sf "http://localhost:3000/total?price=500&qty=2"
+          docker rm -f medicart
+
+  # ---------- CD: runs on YOUR laptop (self-hosted runner), only for main ----------
+  deploy:
+    name: CD - deploy to minikube
     needs: build-test
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: [self-hosted, Windows]
+    concurrency: minikube-deploy
+    env:
+      TAG: ${{ github.sha }}
+    defaults:
+      run:
+        shell: powershell
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install
-        run: npm ci
-      - name: Build
-        run: npm run build
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: medicart-build-${{ github.sha }}
-          path: dist/
-          retention-days: 7
+
+      - name: Check minikube is running
+        run: minikube status
+
+      - name: Build image inside minikube
+        run: minikube image build -t "medicart:$env:TAG" .
+
+      - name: Set image version in manifest
+        run: |
+          (Get-Content k8s/deployment.yaml) `
+            -replace 'medicart:v1', "medicart:$env:TAG" `
+            -replace 'value: "v1"', ('value: "' + $env:TAG.Substring(0,7) + '"') |
+            Set-Content k8s/deployment.yaml
+          Get-Content k8s/deployment.yaml | Select-String 'image:|value:'
+
+      - name: Deploy to namespace medicart
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/
+          kubectl rollout status deployment/medicart -n medicart --timeout=120s
+
+      - name: Show result
+        run: kubectl get deploy,pods,svc -n medicart

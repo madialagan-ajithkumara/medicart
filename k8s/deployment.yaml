@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: medicart
+  namespace: medicart
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: medicart
+  template:
+    metadata:
+      labels:
+        app: medicart
+    spec:
+      containers:
+        - name: web
+          image: medicart:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          env:
+            - name: APP_VERSION
+              value: "v1"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10

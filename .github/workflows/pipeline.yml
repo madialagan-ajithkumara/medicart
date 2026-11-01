@@ -40,40 +40,4 @@ jobs:
           curl -sf "http://localhost:3000/total?price=500&qty=2"
           docker rm -f medicart
 
-  # ---------- CD: runs on YOUR laptop (self-hosted runner), only for main ----------
-  deploy:
-    name: CD - deploy to minikube
-    needs: build-test
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: [self-hosted, Windows]
-    concurrency: minikube-deploy
-    env:
-      TAG: ${{ github.sha }}
-    defaults:
-      run:
-        shell: powershell
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Check minikube is running
-        run: minikube status
-
-      - name: Build image inside minikube
-        run: minikube image build -t "medicart:$env:TAG" .
-
-      - name: Set image version in manifest
-        run: |
-          (Get-Content k8s/deployment.yaml) `
-            -replace 'medicart:v1', "medicart:$env:TAG" `
-            -replace 'value: "v1"', ('value: "' + $env:TAG.Substring(0,7) + '"') |
-            Set-Content k8s/deployment.yaml
-          Get-Content k8s/deployment.yaml | Select-String 'image:|value:'
-
-      - name: Deploy to namespace medicart
-        run: |
-          kubectl apply -f k8s/namespace.yaml
-          kubectl apply -f k8s/
-          kubectl rollout status deployment/medicart -n medicart --timeout=120s
-
-      - name: Show result
-        run: kubectl get deploy,pods,svc -n medicart
+  
